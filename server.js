@@ -13,6 +13,10 @@ const PORT = process.env.PORT || 3000;
 // ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json());
+<<<<<<< HEAD
+=======
+app.use(express.static(path.join(__dirname, 'index')));
+>>>>>>> 531a55d6559cfcca9cf165873ab1478a8e04329c
 
 // ===== IN-MEMORY STORAGE =====
 // Render filesystem bersifat ephemeral — gunakan in-memory

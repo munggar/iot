@@ -13,7 +13,6 @@ const PORT = process.env.PORT || 3000;
 // ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ===== IN-MEMORY STORAGE =====
 // Render filesystem bersifat ephemeral — gunakan in-memory
@@ -36,6 +35,9 @@ if (SELF_PING) {
 }
 
 // ===== ROUTES =====
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // Health check — Render butuh endpoint ini
 app.get('/health', (req, res) => {

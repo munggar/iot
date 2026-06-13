@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart Monitoring System | ESP32 DHT11</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0d1117;
+      --bg2:         #161b22;
+      --bg3:         #21262d;
+      --border:      #30363d;
+      --text:        #e6edf3;
+      --muted:       #7d8590;
+      --accent-blue: #58a6ff;
+      --accent-teal: #39d0b5;
+      --accent-warn: #f0883e;
+      --accent-red:  #f85149;
+      --accent-grn:  #3fb950;
+      --font-mono:   'Courier New', monospace;
+      --font-sans:   'Segoe UI', system-ui, sans-serif;
+      --radius:      10px;
+      --shadow:      0 4px 20px rgba(0,0,0,.4);
+    }
+
+    html { font-size: 15px; scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+    }
+
+    /* ===== TOP BAR ===== */
+    .topbar {
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .topbar-brand {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .topbar-brand .logo {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-teal));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .topbar-brand h1 { font-size: 1rem; font-weight: 600; color: var(--text); }
+    .topbar-brand span { font-size: .75rem; color: var(--muted); margin-left: 4px; }
+
+    .topbar-right { display: flex; align-items: center; gap: 14px; }
+    .connection-badge {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--bg3); border: 1px solid var(--border);
+      padding: 4px 12px; border-radius: 20px; font-size: .78rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent-grn);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .dot.offline { background: var(--accent-red); animation: none; }
+    @keyframes pulse {
+      0%,100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,.4); }
+      50%      { opacity: .8; box-shadow: 0 0 0 6px rgba(63,185,80,0); }
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--bg3); color: var(--text);
+      font-size: .8rem; cursor: pointer; transition: all .15s;
+      text-decoration: none;
+    }
+    .btn:hover { background: var(--border); }
+    .btn-danger { border-color: var(--accent-red); color: var(--accent-red); }
+    .btn-danger:hover { background: rgba(248,81,73,.1); }
+
+    /* ===== ALERT BANNER ===== */
+    #alertBanner {
+      display: none;
+      background: rgba(240,136,62,.12);
+      border: 1px solid var(--accent-warn);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      margin: 16px 24px 0;
+      font-size: .85rem;
+      color: var(--accent-warn);
+      display: none; align-items: center; gap: 10px;
+    }
+    #alertBanner.show { display: flex; }
+    #alertBanner .alert-icon { font-size: 1.1rem; }
+    #alertBanner .alert-close {
+      margin-left: auto; cursor: pointer; opacity: .7;
+      background: none; border: none; color: var(--accent-warn);
+      font-size: 1rem;
+    }
+
+    /* ===== LAYOUT ===== */
+    .main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+
+    /* ===== STAT CARDS ===== */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px; margin-bottom: 20px;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      position: relative; overflow: hidden;
+      transition: border-color .2s;
+    }
+    .card:hover { border-color: var(--accent-blue); }
+    .card::before {
+      content: '';
+      position: absolute; inset: 0;
+      opacity: 0; transition: opacity .2s;
+    }
+    .card.temp::before  { background: linear-gradient(135deg, rgba(248,81,73,.06) 0%, transparent 60%); }
+    .card.hum::before   { background: linear-gradient(135deg, rgba(88,166,255,.06) 0%, transparent 60%); }
+    .card.hi::before    { background: linear-gradient(135deg, rgba(240,136,62,.06) 0%, transparent 60%); }
+    .card.status::before{ background: linear-gradient(135deg, rgba(63,185,80,.06) 0%, transparent 60%); }
+    .card.count::before { background: linear-gradient(135deg, rgba(57,208,181,.06) 0%, transparent 60%); }
+    .card.rssi::before  { background: linear-gradient(135deg, rgba(139,148,158,.06) 0%, transparent 60%); }
+    .card:hover::before { opacity: 1; }
+
+    .card-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .card-value {
+      font-size: 2rem; font-weight: 700; margin: 4px 0 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .card.temp  .card-value { color: var(--accent-red); }
+    .card.hum   .card-value { color: var(--accent-blue); }
+    .card.hi    .card-value { color: var(--accent-warn); }
+    .card.status .card-value { font-size: 1.1rem; font-weight: 600; }
+    .card.count .card-value { color: var(--accent-teal); }
+    .card.rssi  .card-value { color: var(--muted); font-size: 1.4rem; }
+    .card-sub { font-size: .72rem; color: var(--muted); }
+    .card-icon {
+      position: absolute; right: 16px; top: 16px;
+      font-size: 1.6rem; opacity: .18;
+    }
+
+    .status-pill {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+    }
+    .status-normal  { background: rgba(63,185,80,.15);  color: var(--accent-grn); }
+    .status-caution { background: rgba(240,136,62,.15); color: var(--accent-warn); }
+    .status-warning { background: rgba(248,81,73,.15);  color: var(--accent-red); }
+
+    /* ===== CHARTS ===== */
+    .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+    .chart-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+    }
+    .chart-card.wide { grid-column: 1 / -1; }
+    .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .chart-title { font-size: .88rem; font-weight: 600; }
+    .chart-sub   { font-size: .72rem; color: var(--muted); margin-top: 1px; }
+    .chart-wrap  { position: relative; height: 220px; }
+    .chart-wrap.tall { height: 280px; }
+
+    /* ===== BOTTOM GRID ===== */
+    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    /* ===== TABLE ===== */
+    .table-wrap { overflow: auto; max-height: 300px; }
+    table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    thead th {
+      background: var(--bg3); color: var(--muted);
+      padding: 8px 12px; text-align: left;
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+      position: sticky; top: 0; z-index: 1;
+    }
+    tbody tr { border-top: 1px solid var(--border); transition: background .1s; }
+    tbody tr:hover { background: var(--bg3); }
+    tbody td { padding: 7px 12px; }
+    .mono { font-family: var(--font-mono); font-size: .78rem; color: var(--muted); }
+
+    /* ===== ALERT LOG ===== */
+    .alert-list { max-height: 300px; overflow-y: auto; }
+    .alert-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 8px 0; border-bottom: 1px solid var(--border);
+      font-size: .8rem;
+    }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+    .alert-time { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+    .empty-state { color: var(--muted); font-size: .82rem; padding: 20px 0; text-align: center; }
+
+    /* ===== STATS MINI ===== */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .stat-mini { background: var(--bg3); border-radius: 8px; padding: 10px 12px; }
+    .stat-mini-label { font-size: .68rem; color: var(--muted); }
+    .stat-mini-value { font-size: 1rem; font-weight: 600; margin-top: 2px; }
+
+    /* ===== LAST UPDATE ===== */
+    .last-update { font-size: .72rem; color: var(--muted); text-align: right; margin-top: -8px; margin-bottom: 12px; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 768px) {
+      .charts { grid-template-columns: 1fr; }
+      .chart-card.wide { grid-column: 1; }
+      .bottom-grid { grid-template-columns: 1fr; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .cards { grid-template-columns: 1fr; }
+      .topbar-brand span { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <div class="logo">🌡️</div>
+    <h1>Smart Monitor</h1>
+    <span>ESP32 + DHT11</span>
+  </div>
+  <div class="topbar-right">
+    <div class="connection-badge">
+      <div class="dot" id="connDot"></div>
+      <span id="connLabel">Menghubungkan…</span>
+    </div>
+    <a href="/api/export" class="btn" download>⬇ Export CSV</a>
+    <button class="btn btn-danger" onclick="resetData()">🗑 Reset</button>
+  </div>
+</header>
+
+<!-- ALERT BANNER -->
+<div id="alertBanner">
+  <span class="alert-icon">⚠️</span>
+  <span id="alertText">Alert</span>
+  <button class="alert-close" onclick="this.parentElement.classList.remove('show')">✕</button>
+</div>
+
+<main class="main">
+  <p class="last-update" id="lastUpdate">Menunggu data dari ESP32…</p>
+
+  <!-- STAT CARDS -->
+  <div class="cards">
+    <div class="card temp">
+      <div class="card-icon">🌡️</div>
+      <div class="card-label">Suhu</div>
+      <div class="card-value" id="valTemp">--</div>
+      <div class="card-sub" id="subTemp">Menunggu data…</div>
+    </div>
+    <div class="card hum">
+      <div class="card-icon">💧</div>
+      <div class="card-label">Kelembaban</div>
+      <div class="card-value" id="valHum">--</div>
+      <div class="card-sub" id="subHum">Menunggu data…</div>
+    </div>
+    <div class="card hi">
+      <div class="card-icon">🔥</div>
+      <div class="card-label">Heat Index</div>
+      <div class="card-value" id="valHI">--</div>
+      <div class="card-sub">Feels like temperature</div>
+    </div>
+    <div class="card status">
+      <div class="card-icon">📊</div>
+      <div class="card-label">Status</div>
+      <div class="card-value" id="valStatus"><span class="status-pill status-normal">Normal</span></div>
+      <div class="card-sub" id="subStatus">Semua normal</div>
+    </div>
+    <div class="card count">
+      <div class="card-icon">📈</div>
+      <div class="card-label">Total Pembacaan</div>
+      <div class="card-value" id="valCount">0</div>
+      <div class="card-sub" id="subDevice">Device: --</div>
+    </div>
+    <div class="card rssi">
+      <div class="card-icon">📶</div>
+      <div class="card-label">WiFi RSSI</div>
+      <div class="card-value" id="valRSSI">--</div>
+      <div class="card-sub" id="subRSSI">Signal strength</div>
+    </div>
+  </div>
+
+  <!-- CHARTS ROW 1 -->
+  <div class="charts">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">📈 Suhu Real-Time</div>
+          <div class="chart-sub">50 pembacaan terakhir</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartTemp"></canvas>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">💧 Kelembaban Real-Time</div>
+          <div class="chart-sub">50 pembacaan terakhir</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartHum"></canvas>
+      </div>
+    </div>
+    <div class="chart-card wide">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">🌡️ Suhu & Kelembaban (Gabungan)</div>
+          <div class="chart-sub">100 pembacaan terakhir</div>
+        </div>
+        <div id="statsMini"></div>
+      </div>
+      <div class="chart-wrap tall">
+        <canvas id="chartCombined"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM GRID -->
+  <div class="bottom-grid">
+    <!-- DATA TABLE -->
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">📋 Data Terbaru</div>
+          <div class="chart-sub">20 record terakhir</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Waktu</th>
+              <th>Suhu</th>
+              <th>Lembab</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="4" class="empty-state">Menunggu data…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ALERT LOG -->
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">🔔 Log Alert</div>
+          <div class="chart-sub">Riwayat notifikasi sensor</div>
+        </div>
+        <span id="alertCount" style="font-size:.72rem;color:var(--muted)">0 alert</span>
+      </div>
+      <div class="alert-list" id="alertList">
+        <div class="empty-state">Belum ada alert</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ===== INISIALISASI CHART =====
+const CHART_OPTIONS_BASE = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 300 },
+  plugins: { legend: { display: false } },
+  scales: {
+    x: {
+      ticks: { color: '#7d8590', font: { size: 10 }, maxTicksLimit: 6 },
+      grid:  { color: 'rgba(48,54,61,.6)' },
+    },
+    y: {
+      ticks: { color: '#7d8590', font: { size: 10 } },
+      grid:  { color: 'rgba(48,54,61,.6)' },
+    }
+  }
+};
+
+// Chart Suhu
+const ctxTemp = document.getElementById('chartTemp').getContext('2d');
+const chartTemp = new Chart(ctxTemp, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Suhu (°C)',
+      data: [],
+      borderColor:     '#f85149',
+      backgroundColor: 'rgba(248,81,73,.08)',
+      borderWidth: 2, fill: true, tension: .4,
+      pointRadius: 2, pointHoverRadius: 5,
+    }]
+  },
+  options: {
+    ...CHART_OPTIONS_BASE,
+    scales: {
+      ...CHART_OPTIONS_BASE.scales,
+      y: { ...CHART_OPTIONS_BASE.scales.y, min: 15, max: 45,
+           ticks: { ...CHART_OPTIONS_BASE.scales.y.ticks, callback: v => v + '°' } }
+    }
+  }
+});
+
+// Chart Kelembaban
+const ctxHum = document.getElementById('chartHum').getContext('2d');
+const chartHum = new Chart(ctxHum, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: 'Kelembaban (%)',
+      data: [],
+      borderColor:     '#58a6ff',
+      backgroundColor: 'rgba(88,166,255,.08)',
+      borderWidth: 2, fill: true, tension: .4,
+      pointRadius: 2, pointHoverRadius: 5,
+    }]
+  },
+  options: {
+    ...CHART_OPTIONS_BASE,
+    scales: {
+      ...CHART_OPTIONS_BASE.scales,
+      y: { ...CHART_OPTIONS_BASE.scales.y, min: 0, max: 100,
+           ticks: { ...CHART_OPTIONS_BASE.scales.y.ticks, callback: v => v + '%' } }
+    }
+  }
+});
+
+// Chart Kombinasi
+const ctxCombined = document.getElementById('chartCombined').getContext('2d');
+const chartCombined = new Chart(ctxCombined, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Suhu (°C)',
+        data: [],
+        borderColor:     '#f85149',
+        backgroundColor: 'rgba(248,81,73,.06)',
+        borderWidth: 2, fill: true, tension: .4,
+        pointRadius: 0, yAxisID: 'yTemp',
+      },
+      {
+        label: 'Kelembaban (%)',
+        data: [],
+        borderColor:     '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.06)',
+        borderWidth: 2, fill: true, tension: .4,
+        pointRadius: 0, yAxisID: 'yHum',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: '#7d8590', font: { size: 11 }, boxWidth: 12 }
+      }
+    },
+    scales: {
+      x: { ticks: { color: '#7d8590', font: { size: 10 }, maxTicksLimit: 8 },
+           grid:  { color: 'rgba(48,54,61,.5)' } },
+      yTemp: {
+        type: 'linear', position: 'left',
+        min: 15, max: 45,
+        ticks: { color: '#f85149', font: { size: 10 }, callback: v => v + '°' },
+        grid: { color: 'rgba(48,54,61,.5)' },
+      },
+      yHum: {
+        type: 'linear', position: 'right',
+        min: 0, max: 100,
+        ticks: { color: '#58a6ff', font: { size: 10 }, callback: v => v + '%' },
+        grid: { drawOnChartArea: false },
+      }
+    }
+  }
+});
+
+// ===== STATE =====
+let allData      = [];
+let alertHistory = [];
+let lastId       = 0;
+let isConnected  = false;
+
+// ===== POLLING DATA =====
+async function fetchData() {
+  try {
+    const [dataRes, statsRes, alertsRes] = await Promise.all([
+      fetch('/api/data?limit=100'),
+      fetch('/api/stats'),
+      fetch('/api/alerts')
+    ]);
+
+    if (!dataRes.ok) throw new Error('Server error');
+
+    allData      = await dataRes.json();
+    const stats  = await statsRes.json();
+    alertHistory = await alertsRes.json();
+
+    setConnected(true);
+    updateCards(stats);
+    updateCharts();
+    updateTable();
+    updateAlertLog();
+
+    // Cek alert terbaru
+    if (allData.length > 0) {
+      const latest = allData[allData.length - 1];
+      if (latest.id !== lastId) {
+        lastId = latest.id;
+        checkAlert(latest);
+        document.getElementById('lastUpdate').textContent =
+          'Update terakhir: ' + formatTime(latest.timestamp);
+      }
+    }
+  } catch (e) {
+    setConnected(false);
+  }
+}
+
+// ===== SET STATUS KONEKSI =====
+function setConnected(ok) {
+  const dot   = document.getElementById('connDot');
+  const label = document.getElementById('connLabel');
+  dot.className   = 'dot' + (ok ? '' : ' offline');
+  label.textContent = ok ? 'Online' : 'Offline - Server tidak terjangkau';
+  isConnected = ok;
+}
+
+// ===== UPDATE KARTU STAT =====
+function updateCards(stats) {
+  if (!stats || stats.count === 0) return;
+  if (allData.length === 0) return;
+
+  const latest = allData[allData.length - 1];
+
+  document.getElementById('valTemp').textContent  = latest.temperature.toFixed(1) + '°C';
+  document.getElementById('valHum').textContent   = latest.humidity.toFixed(1) + '%';
+  document.getElementById('valHI').textContent    = latest.heat_index ? latest.heat_index.toFixed(1) + '°C' : '--';
+  document.getElementById('valCount').textContent = stats.count;
+  document.getElementById('subDevice').textContent = 'Device: ' + (latest.device_id || '--');
+
+  // RSSI
+  if (latest.wifi_rssi) {
+    const rssi = latest.wifi_rssi;
+    const quality = rssi > -50 ? 'Sangat Baik' : rssi > -70 ? 'Baik' : rssi > -80 ? 'Lemah' : 'Sangat Lemah';
+    document.getElementById('valRSSI').textContent  = rssi + ' dBm';
+    document.getElementById('subRSSI').textContent  = quality;
+  }
+
+  // Status pill
+  const s = latest.status || 'normal';
+  document.getElementById('valStatus').innerHTML =
+    `<span class="status-pill status-${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</span>`;
+  document.getElementById('subStatus').textContent =
+    s === 'normal' ? 'Semua dalam batas normal' :
+    s === 'caution' ? 'Perlu diperhatikan' : 'Di luar batas threshold!';
+
+  // Sub-stat suhu dan kelembaban
+  document.getElementById('subTemp').textContent =
+    `Min: ${stats.temp.min}° | Max: ${stats.temp.max}° | Avg: ${stats.temp.avg}°`;
+  document.getElementById('subHum').textContent =
+    `Min: ${stats.humidity.min}% | Max: ${stats.humidity.max}% | Avg: ${stats.humidity.avg}%`;
+
+  // Stats mini di chart gabungan
+  document.getElementById('statsMini').innerHTML = `
+    <div style="font-size:.72rem;color:var(--muted);text-align:right">
+      <span style="color:#f85149">●</span> Suhu: avg ${stats.temp.avg}°C &nbsp;
+      <span style="color:#58a6ff">●</span> Lembab: avg ${stats.humidity.avg}%
+    </div>`;
+}
+
+// ===== UPDATE CHARTS =====
+function updateCharts() {
+  const data = allData.slice(-50);
+  const dataLong = allData.slice(-100);
+
+  const labels      = data.map(d => formatTime(d.timestamp));
+  const labelsLong  = dataLong.map(d => formatTime(d.timestamp));
+  const temps       = data.map(d => d.temperature);
+  const hums        = data.map(d => d.humidity);
+  const tempsLong   = dataLong.map(d => d.temperature);
+  const humsLong    = dataLong.map(d => d.humidity);
+
+  chartTemp.data.labels   = labels;
+  chartTemp.data.datasets[0].data = temps;
+  chartTemp.update('none');
+
+  chartHum.data.labels    = labels;
+  chartHum.data.datasets[0].data = hums;
+  chartHum.update('none');
+
+  chartCombined.data.labels = labelsLong;
+  chartCombined.data.datasets[0].data = tempsLong;
+  chartCombined.data.datasets[1].data = humsLong;
+  chartCombined.update('none');
+}
+
+// ===== UPDATE TABLE =====
+function updateTable() {
+  const recent = [...allData].slice(-20).reverse();
+  const tbody  = document.getElementById('tableBody');
+
+  if (recent.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Menunggu data…</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = recent.map(d => `
+    <tr>
+      <td class="mono">${formatTime(d.timestamp)}</td>
+      <td style="color:var(--accent-red)">${d.temperature.toFixed(1)}°C</td>
+      <td style="color:var(--accent-blue)">${d.humidity.toFixed(1)}%</td>
+      <td><span class="status-pill status-${d.status}">${d.status}</span></td>
+    </tr>
+  `).join('');
+}
+
+// ===== UPDATE ALERT LOG =====
+function updateAlertLog() {
+  const list  = document.getElementById('alertList');
+  const count = document.getElementById('alertCount');
+  count.textContent = alertHistory.length + ' alert';
+
+  if (alertHistory.length === 0) {
+    list.innerHTML = '<div class="empty-state">✅ Belum ada alert — semua normal</div>';
+    return;
+  }
+
+  const recent = [...alertHistory].reverse().slice(0, 20);
+  list.innerHTML = recent.map(d => {
+    const color = d.status === 'warning' ? 'var(--accent-red)' : 'var(--accent-warn)';
+    return `
+      <div class="alert-item">
+        <div class="alert-dot" style="background:${color}"></div>
+        <div style="flex:1">
+          <div style="font-size:.8rem">${d.alert}</div>
+          <div class="alert-time">${formatDateTime(d.timestamp)} — ${d.device_id}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ===== CEK ALERT BARU =====
+function checkAlert(latest) {
+  if (latest.alert && latest.alert !== 'none') {
+    const banner = document.getElementById('alertBanner');
+    document.getElementById('alertText').textContent =
+      '⚠️ ALERT dari ' + latest.device_id + ': ' + latest.alert;
+    banner.classList.add('show');
+    setTimeout(() => banner.classList.remove('show'), 8000);
+  }
+}
+
+// ===== RESET DATA =====
+async function resetData() {
+  if (!confirm('Hapus semua data monitoring? Tindakan ini tidak dapat dibatalkan.')) return;
+  try {
+    await fetch('/api/data', { method: 'DELETE' });
+    allData = []; alertHistory = [];
+    updateCharts(); updateTable(); updateAlertLog();
+    document.getElementById('lastUpdate').textContent = 'Data direset';
+    alert('✅ Data berhasil dihapus');
+  } catch (e) {
+    alert('Gagal menghapus data');
+  }
+}
+
+// ===== FORMAT WAKTU =====
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function formatDateTime(iso) {
+  return new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// ===== MULAI POLLING =====
+fetchData();
+setInterval(fetchData, 3000);  // Refresh setiap 3 detik
+</script>
+</body>
+</html>
